@@ -4,7 +4,8 @@ const { exec } = require("child_process");
 let router = express.Router();
 const pino = require("pino");
 const { Boom } = require("@hapi/boom");
-const MESSAGE = process.env.MESSAGE || `*✅sᴇssɪᴏɴ ɪᴅ ɢᴇɴᴇʀᴀᴛᴇᴅ✅*
+const MESSAGE = process.env.MESSAGE || `
+*✅sᴇssɪᴏɴ ɪᴅ ɢᴇɴᴇʀᴀᴛᴇᴅ✅*
 ______________________________
 ╔════◇
 ║『 𝐘𝐎𝐔'𝐕𝐄 𝐂𝐇𝐎𝐒𝐄𝐍 𝗧𝗛𝗔𝗥𝗨𝗪𝗔 𝐌𝐃 』
@@ -19,6 +20,7 @@ ______________________________
 ╚══════════════╝ 
  𝗧𝗛𝗔𝗥𝗨𝗪𝗔-𝗠𝗗 𝗩𝗘𝗥𝗦𝗜𝗢𝗡 0.𝟬.1
 ______________________________
+
 `;
 
 const { upload } = require('./mega');
@@ -67,11 +69,18 @@ router.get('/', async (req, res) => {
 
                 if (connection === "open") {
                     try {
-                        await delay(10000);
-                        if (fs.existsSync('./auth_info_baileys/creds.json'));
+                        await delay(15000); // Increased delay for more stable connection
+                        
+                        if (!fs.existsSync('./auth_info_baileys/creds.json')) {
+                            throw new Error("Creds file not found");
+                        }
 
                         const auth_path = './auth_info_baileys/';
-                        let user = Smd.user.id;
+                        let user = Smd.user?.id;
+                        
+                        if (!user) {
+                            throw new Error("User ID not available");
+                        }
 
                         // Generate random ID for Mega upload
                         function randomMegaId(length = 6, numberLength = 4) {
@@ -85,45 +94,80 @@ router.get('/', async (req, res) => {
                         }
 
                         // Upload credentials to Mega with prefix
-                        const mega_url = await upload(fs.createReadStream(auth_path + 'creds.json'), `${randomMegaId()}.json`);
-                        const Id_session = mega_url.replace('https://mega.nz/file/', '');
+                        try {
+                            const mega_url = await upload(fs.createReadStream(auth_path + 'creds.json'), `${randomMegaId()}.json`);
+                            if (!mega_url) {
+                                throw new Error("Mega upload failed");
+                            }
 
-                        // Add prefix (THARUWA-MD~)
-                        const Scan_Id = "THARUWA-MD~" + Id_session;
+                            const Id_session = mega_url.replace('https://mega.nz/file/', '');
+                            const Scan_Id = "THARUWA-MD~" + Id_session;
 
-                        // Send formatted message with session details
-                        let msgsss = await Smd.sendMessage(user, { 
-                            text: `${Scan_Id}` 
-                        });
+                            // Send formatted message with session details
+                            let msgsss = await Smd.sendMessage(user, { 
+                                text: `${Scan_Id}` 
+                            });
 
-                        // Send the original MESSAGE
-                        await Smd.sendMessage(user, { text: MESSAGE }, { quoted: msgsss });
+                            // Send the original MESSAGE
+                            await Smd.sendMessage(user, { text: MESSAGE }, { quoted: msgsss });
+                            
+                        } catch (uploadErr) {
+                            console.error("Upload error:", uploadErr);
+                            await Smd.sendMessage(user, { 
+                                text: `❌ Failed to upload session to Mega\n\n` +
+                                      `Please try again or contact support.`
+                            });
+                        }
+
                         await delay(1000);
-                        try { await fs.emptyDirSync(__dirname + '/auth_info_baileys'); } catch (e) {}
+                        try { 
+                            await fs.emptyDirSync(__dirname + '/auth_info_baileys'); 
+                        } catch (cleanErr) {
+                            console.error("Cleanup error:", cleanErr);
+                        }
 
                     } catch (e) {
-                        console.log("Error during file upload or message send: ", e);
+                        console.error("Error during session generation:", e);
+                        try {
+                            if (Smd.user?.id) {
+                                await Smd.sendMessage(Smd.user.id, { 
+                                    text: `❌ Error generating session:\n${e.message}\n\nPlease try again.`
+                                });
+                            }
+                        } catch (sendErr) {
+                            console.error("Failed to send error message:", sendErr);
+                        }
+                    } finally {
+                        await delay(100);
+                        try {
+                            await fs.emptyDirSync(__dirname + '/auth_info_baileys');
+                        } catch (e) {}
                     }
-
-                    await delay(100);
-                    await fs.emptyDirSync(__dirname + '/auth_info_baileys');
                 }
 
                 // Handle connection closures
                 if (connection === "close") {
-                    let reason = new Boom(lastDisconnect?.error)?.output.statusCode;
-                    if (reason === DisconnectReason.connectionClosed) {
-                        console.log("Connection closed!");
-                    } else if (reason === DisconnectReason.connectionLost) {
-                        console.log("Connection Lost from Server!");
+                    let reason = new Boom(lastDisconnect?.error)?.output?.statusCode;
+                    console.log("Connection closed with reason:", reason);
+                    
+                    if (reason === DisconnectReason.connectionClosed || 
+                        reason === DisconnectReason.connectionLost || 
+                        reason === DisconnectReason.timedOut) {
+                        console.log("Reconnecting...");
+                        await delay(3000);
+                        SUHAIL().catch(err => console.log("Reconnect error:", err));
                     } else if (reason === DisconnectReason.restartRequired) {
                         console.log("Restart Required, Restarting...");
-                        SUHAIL().catch(err => console.log(err));
-                    } else if (reason === DisconnectReason.timedOut) {
-                        console.log("Connection TimedOut!");
+                        await delay(5000);
+                        SUHAIL().catch(err => console.log("Restart error:", err));
+                    } else if (reason === DisconnectReason.loggedOut || 
+                               reason === DisconnectReason.badSession) {
+                        console.log("Invalid session, cleaning up...");
+                        await fs.emptyDirSync(__dirname + '/auth_info_baileys');
+                        await delay(5000);
+                        SUHAIL().catch(err => console.log("Restart error:", err));
                     } else {
-                        console.log('Connection closed with bot. Please run again.');
-                        console.log(reason);
+                        console.log('Unknown disconnect reason, restarting...');
                         await delay(5000);
                         exec('pm2 restart qasim');
                     }
@@ -131,14 +175,20 @@ router.get('/', async (req, res) => {
             });
 
         } catch (err) {
-            console.log("Error in SUHAIL function: ", err);
-            exec('pm2 restart qasim');
-            console.log("Service restarted due to error");
-            SUHAIL();
-            await fs.emptyDirSync(__dirname + '/auth_info_baileys');
+            console.error("Initial connection error:", err);
+            try {
+                await fs.emptyDirSync(__dirname + '/auth_info_baileys');
+            } catch (e) {}
+            
             if (!res.headersSent) {
-                await res.send({ code: "Try After Few Minutes" });
+                await res.status(500).send({ 
+                    error: "Connection error", 
+                    message: err.message 
+                });
             }
+            
+            await delay(5000);
+            exec('pm2 restart qasim');
         }
     }
 
