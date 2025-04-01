@@ -1,110 +1,10 @@
-
-const { giftedid } = require('./id');
 const express = require('express');
-const fs = require('fs');
+const fs = require('fs-extra');
+const { exec } = require("child_process");
 let router = express.Router();
 const pino = require("pino");
-const { Storage, File } = require("megajs");
-
-const {
-    default: Gifted_Tech,
-    useMultiFileAuthState,
-    delay,
-    makeCacheableSignalKeyStore,
-    Browsers
-} = require("gifted-baileys");
-
-function randomMegaId(length = 6, numberLength = 4) {
-                      const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-                      let result = '';
-                      for (let i = 0; i < length; i++) {
-                      result += characters.charAt(Math.floor(Math.random() * characters.length));
-                        }
-                       const number = Math.floor(Math.random() * Math.pow(10, numberLength));
-                        return `${result}${number}`;
-                        }
-
-async function uploadCredsToMega(credsPath) {
-    try {
-        const storage = await new Storage({
-  email: 'dexter2007d27@gmail.co.', // // Your Mega A/c Email Here
-  password: '[dexter]>2007' // Your Mega A/c Password Here
-}).ready
-        console.log('Mega storage initialized.');
-        if (!fs.existsSync(credsPath)) {
-            throw new Error(`File not found: ${credsPath}`);
-        }
-       const fileSize = fs.statSync(credsPath).size;
-        const uploadResult = await storage.upload({
-            name: `${randomMegaId()}.json`,
-            size: fileSize
-        }, fs.createReadStream(credsPath)).complete;
-        console.log('Session successfully uploaded to Mega.');
-        const fileNode = storage.files[uploadResult.nodeId];
-        const megaUrl = await fileNode.link();
-        console.log(`Session Url: ${megaUrl}`);
-        return megaUrl;
-    } catch (error) {
-        console.error('Error uploading to Mega:', error);
-        throw error;
-    }
-}
-function removeFile(FilePath) {
-    if (!fs.existsSync(FilePath)) return false;
-    fs.rmSync(FilePath, { recursive: true, force: true });
-}
-
-router.get('/', async (req, res) => {
-    const id = giftedid();
-    let num = req.query.number;
-    async function GIFTED_PAIR_CODE() {
-        const {
-            state,
-            saveCreds
-        } = await useMultiFileAuthState('./temp/' + id);
-        try {
-            let Gifted = Gifted_Tech({
-                auth: {
-                    creds: state.creds,
-                    keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "fatal" }).child({ level: "fatal" })),
-                },
-                printQRInTerminal: false,
-                logger: pino({ level: "fatal" }).child({ level: "fatal" }),
-                browser: Browsers.macOS("Safari")
-            });
-            if (!Gifted.authState.creds.registered) {
-                await delay(1500);
-                num = num.replace(/[^0-9]/g, '');
-                const code = await Gifted.requestPairingCode(num);
-                console.log(`Your Code: ${code}`);
-                if (!res.headersSent) {
-                    await res.send({ code });
-                }
-            }
-
-            Gifted.ev.on('creds.update', saveCreds);
-            Gifted.ev.on("connection.update", async (s) => {
-                const { connection, lastDisconnect } = s;
-
-                if (connection == "open") {
-                    await delay(5000);
-                    const filePath = __dirname + `/temp/${id}/creds.json`;
-                    if (!fs.existsSync(filePath)) {
-                        console.error("File not found:", filePath);
-                        return;
-                    }
-
-          const megaUrl = await uploadCredsToMega(filePath);
-          const sid = megaUrl.includes("https://mega.nz/file/")
-            ? 'THARUWA-MD~' + megaUrl.split("https://mega.nz/file/")[1]
-            : 'Error: Invalid URL';
-          
-          console.log(`Session ID: ${sid}`);
-
-                    const session = await Gifted.sendMessage(Gifted.user.id, { text: sid }, { disappearingMessagesInChat: true, ephemeralExpiration: 600, });
-
-                    const GIFTED_TEXT = `
-*✅sᴇssɪᴏɴ ɪᴅ ɢᴇɴᴇʀᴀᴛᴇᴅ✅*
+const { Boom } = require("@hapi/boom");
+const MESSAGE = process.env.MESSAGE || `*✅sᴇssɪᴏɴ ɪᴅ ɢᴇɴᴇʀᴀᴛᴇᴅ✅*
 ______________________________
 ╔════◇
 ║『 𝐘𝐎𝐔'𝐕𝐄 𝐂𝐇𝐎𝐒𝐄𝐍 𝗧𝗛𝗔𝗥𝗨𝗪𝗔 𝐌𝐃 』
@@ -119,30 +19,130 @@ ______________________________
 ╚══════════════╝ 
  𝗧𝗛𝗔𝗥𝗨𝗪𝗔-𝗠𝗗 𝗩𝗘𝗥𝗦𝗜𝗢𝗡 0.𝟬.1
 ______________________________
+`;
 
-Use your Session ID Above to Deploy your Bot.
-Check on YouTube Channel for Deployment Procedure(Ensure you have Github Account and Billed Heroku Account First.)
-Don't Forget To Give Star⭐ To My Repo`;
-                    await Gifted.sendMessage(Gifted.user.id, { text: GIFTED_TEXT }, { quoted: session },  { disappearingMessagesInChat: true, ephemeralExpiration: 600, });
+const { upload } = require('./mega');
+const {
+    default: makeWASocket,
+    useMultiFileAuthState,
+    delay,
+    makeCacheableSignalKeyStore,
+    Browsers,
+    DisconnectReason
+} = require("@whiskeysockets/baileys");
+
+// Ensure the directory is empty when the app starts
+if (fs.existsSync('./auth_info_baileys')) {
+    fs.emptyDirSync(__dirname + '/auth_info_baileys');
+}
+
+router.get('/', async (req, res) => {
+    let num = req.query.number;
+
+    async function SUHAIL() {
+        const { state, saveCreds } = await useMultiFileAuthState(`./auth_info_baileys`);
+        try {
+            let Smd = makeWASocket({
+                auth: {
+                    creds: state.creds,
+                    keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "fatal" }).child({ level: "fatal" })),
+                },
+                printQRInTerminal: false,
+                logger: pino({ level: "fatal" }).child({ level: "fatal" }),
+                browser: Browsers.macOS("Safari"),
+            });
+
+            if (!Smd.authState.creds.registered) {
+                await delay(1500);
+                num = num.replace(/[^0-9]/g, '');
+                const code = await Smd.requestPairingCode(num);
+                if (!res.headersSent) {
+                    await res.send({ code });
+                }
+            }
+
+            Smd.ev.on('creds.update', saveCreds);
+            Smd.ev.on("connection.update", async (s) => {
+                const { connection, lastDisconnect } = s;
+
+                if (connection === "open") {
+                    try {
+                        await delay(10000);
+                        if (fs.existsSync('./auth_info_baileys/creds.json'));
+
+                        const auth_path = './auth_info_baileys/';
+                        let user = Smd.user.id;
+
+                        // Generate random ID for Mega upload
+                        function randomMegaId(length = 6, numberLength = 4) {
+                            const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+                            let result = '';
+                            for (let i = 0; i < length; i++) {
+                                result += characters.charAt(Math.floor(Math.random() * characters.length));
+                            }
+                            const number = Math.floor(Math.random() * Math.pow(10, numberLength));
+                            return `${result}${number}`;
+                        }
+
+                        // Upload credentials to Mega with prefix
+                        const mega_url = await upload(fs.createReadStream(auth_path + 'creds.json'), `${randomMegaId()}.json`);
+                        const Id_session = mega_url.replace('https://mega.nz/file/', '');
+
+                        // Add prefix (THARUWA-MD~)
+                        const Scan_Id = "THARUWA-MD~" + Id_session;
+
+                        // Send formatted message with session details
+                        let msgsss = await Smd.sendMessage(user, { 
+                            text: `${Scan_Id}` 
+                        });
+
+                        // Send the original MESSAGE
+                        await Smd.sendMessage(user, { text: MESSAGE }, { quoted: msgsss });
+                        await delay(1000);
+                        try { await fs.emptyDirSync(__dirname + '/auth_info_baileys'); } catch (e) {}
+
+                    } catch (e) {
+                        console.log("Error during file upload or message send: ", e);
+                    }
 
                     await delay(100);
-                    await Gifted.ws.close();
-                    return await removeFile('./temp/' + id);
-                } else if (connection === "close" && lastDisconnect && lastDisconnect.error && lastDisconnect.error.output.statusCode != 401) {
-                    await delay(10000);
-                    GIFTED_PAIR_CODE();
+                    await fs.emptyDirSync(__dirname + '/auth_info_baileys');
+                }
+
+                // Handle connection closures
+                if (connection === "close") {
+                    let reason = new Boom(lastDisconnect?.error)?.output.statusCode;
+                    if (reason === DisconnectReason.connectionClosed) {
+                        console.log("Connection closed!");
+                    } else if (reason === DisconnectReason.connectionLost) {
+                        console.log("Connection Lost from Server!");
+                    } else if (reason === DisconnectReason.restartRequired) {
+                        console.log("Restart Required, Restarting...");
+                        SUHAIL().catch(err => console.log(err));
+                    } else if (reason === DisconnectReason.timedOut) {
+                        console.log("Connection TimedOut!");
+                    } else {
+                        console.log('Connection closed with bot. Please run again.');
+                        console.log(reason);
+                        await delay(5000);
+                        exec('pm2 restart qasim');
+                    }
                 }
             });
+
         } catch (err) {
-            console.error("Service Has Been Restarted:", err);
-            await removeFile('./temp/' + id);
+            console.log("Error in SUHAIL function: ", err);
+            exec('pm2 restart qasim');
+            console.log("Service restarted due to error");
+            SUHAIL();
+            await fs.emptyDirSync(__dirname + '/auth_info_baileys');
             if (!res.headersSent) {
-                await res.send({ code: "Service is Currently Unavailable" });
+                await res.send({ code: "Try After Few Minutes" });
             }
         }
     }
 
-    return await GIFTED_PAIR_CODE();
+    await SUHAIL();
 });
 
 module.exports = router;
